@@ -1,139 +1,123 @@
 package collapsing.toolbar.cmp
 
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import org.jetbrains.compose.ui.tooling.preview.Preview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 
 @Composable
-@Preview
-fun App() {
+fun App(
+) {
     MaterialTheme {
+        CollapsingToolbarWithSnap()
+    }
+}
 
-        // For collapsing top bar
-        val listState = rememberLazyListState()
-        var previousOffset by remember { mutableStateOf(0) }
-        var currentToolbarHeight by remember { mutableStateOf(60.dp) }
+operator fun Dp.minus(value: Float): Dp = (this.value - value).dp
+operator fun Dp.plus(value: Float): Dp = (this.value + value).dp
 
-        val targetToolbarHeight by remember(currentToolbarHeight) {
-            derivedStateOf {
-                if (!listState.isScrollInProgress) {
-                    if (currentToolbarHeight < 30.dp) 0.dp else 60.dp
-                } else {
-                    currentToolbarHeight
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CollapsingToolbarWithSnap() {
+    val maxHeight = 60.dp
+    val minHeight = 0.dp
+    val snapThreshold = 30f
+
+    var toolbarHeightPx by remember { mutableStateOf(maxHeight.value) }
+    val animatedHeight by animateDpAsState(
+        targetValue = toolbarHeightPx.dp.coerceIn(minHeight, maxHeight),
+        label = "AnimatedToolbarHeight"
+    )
+
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta != 0f) {
+                    toolbarHeightPx = (toolbarHeightPx + delta / 2)
+                        .coerceIn(minHeight.value, maxHeight.value)
+
+                    // Перезапускаем задержку для snap-а
+                    scrollJob?.cancel()
+                    scrollJob = coroutineScope.launch {
+                        delay(200L) // Ждём окончания скролла
+                        toolbarHeightPx = if (toolbarHeightPx < snapThreshold) {
+                            minHeight.value
+                        } else {
+                            maxHeight.value
+                        }
+                    }
                 }
+                return Offset.Zero
             }
         }
+    }
 
-        LaunchedEffect(listState.firstVisibleItemScrollOffset) {
-            val delta = listState.firstVisibleItemScrollOffset - previousOffset
-            currentToolbarHeight = (currentToolbarHeight - delta.dp).coerceIn(0.dp, 60.dp)
-            previousOffset = listState.firstVisibleItemScrollOffset
-        }
-        val animatedToolbarHeight by animateDpAsState(
-            targetValue = targetToolbarHeight,
-            animationSpec = tween(300)
-        )
-        val toolbarContentAlpha by animateFloatAsState(
-            targetValue = if (listState.isScrollInProgress) {
-                currentToolbarHeight.value / 60f
-            } else {
-                targetToolbarHeight.value / 60f
-            },
-            animationSpec = tween(300)
-        )
-        val titleFontSize by animateFloatAsState(
-            targetValue = if (listState.isScrollInProgress) {
-                28f * (currentToolbarHeight.value / 60f)
-            } else {
-                28f * (targetToolbarHeight.value / 60f)
-            },
-            animationSpec = tween(300)
+    val items = remember { List(50) { "Item #$it" } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(color = Color.Blue)
+            .nestedScroll(nestedScrollConnection)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        TopAppBar(
+            title = { Text("Collapsing Toolbar") },
+            modifier = Modifier.height(animatedHeight),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Blue),
         )
 
-        Column (
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+                .background(color = Color.LightGray),
+            contentPadding = PaddingValues(vertical = 16.dp),
         ) {
-            BaseTopBar(
-                titleText = "Your title",
-                height = animatedToolbarHeight,
-                contentAlpha = toolbarContentAlpha,
-                titleFontSize = titleFontSize
-            )
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                state = listState,
-                contentPadding = PaddingValues(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                items(40) {
-                    Box(modifier = Modifier
+            items(items) {
+                Text(
+                    text = it,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .height(100.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(color = Color.LightGray)
-                        .padding(horizontal = 16.dp),
-                    ) {}
-                    Spacer(modifier = Modifier.size(8.dp))
-                }
+                        .padding(16.dp)
+                )
             }
         }
     }
 }
 
-@Composable
-fun BaseTopBar(
-    titleText: String,
-    height: Dp,
-    contentAlpha: Float,
-    titleFontSize: Float,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .background(color = Color.DarkGray)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = titleText,
-            modifier = Modifier.alpha(alpha = contentAlpha),
-            color = Color.White,
-            fontSize = titleFontSize.sp,
-        )
-    }
-}
